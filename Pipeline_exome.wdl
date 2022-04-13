@@ -1,4 +1,4 @@
-version 1.0
+version 1.0.0
 
 ## Copyright Imagine Institute, 2022
 ##
@@ -25,13 +25,9 @@ version 1.0
 ##
 
 # Workflow Definition
-
-workflow Exome_py {
-
+workflow DataPreprocessing {
 	String pipeline_version = "1.0.0"
-	
 	input {
-	
 	String sample_name	
 	File r1fastq
 	File r2fastq
@@ -49,8 +45,13 @@ workflow Exome_py {
 	File All_gene
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
-	
 }	
+	call qualityCheck {
+		input:
+			sample_name = sample_name,
+			r1fastq = r1fastq,
+			r2fastq = r2fastq,
+		}
 	call alignBWA { 
 	
 		input:
