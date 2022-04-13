@@ -53,159 +53,163 @@ workflow DataPreprocessing {
 	Boolean make_gvcf = true
 	String gatk_path = ""
 }	
-	call qualityCheck {
-		input:
-			sample_name = sample_name,
-			r1fastq = r1fastq,
-			r2fastq = r2fastq,
-		}
-	call AlignBWA { 
-		input:
-			sample_name = sample_name,
-			r1fastq = r1fastq,
-			r2fastq = r2fastq,
-			ref_fasta = ref_fasta,
-			ref_fasta_amb = ref_fasta_amb,
-			ref_fasta_sa = ref_fasta_sa,
-			ref_fasta_bwt = ref_fasta_bwt,
-			ref_fasta_ann = ref_fasta_ann,
-			ref_fasta_pac = ref_fasta_pac,
-		}
-	
-	call SortSam {
-		input : 
-			sample_name = sample_name,
-			insam = AlignBWA.outsam	
-		}
-		
-	call Markduplicates {
-		input:
-			sample_name = sample_name,
-			outbam = SortSam.outbam	
-		}
-		
-	call FixReadGroup {
-		
-		input:
-			sample_name = sample_name,
-			out_dup_bam = Markduplicates.outbam
-			
-		}
-		
-	call BuildBamIndex {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			bai_bam = FixReadGroup.out_dup_bam	
-		}
-		
-		
-	call DepthOfCoverage {
-		inpt:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_gene_list = ref_gene_list,
-			interval_bed = interval_bed,
-			input_bam = FixReadGroup.out_dup_bam,
-			depth_output = sample_name
-		
-		}
-		
-	call Qualimap {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_gene_list = ref_gene_list,
-			interval_bed = interval_bed,
-			input_bam = FixReadGroup.out_dup_bam,
-			
-		}
-			
-					
-	call GATK_HaplotypeCaller {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			input_bam = FixReadGroup.out_dup_ba
-			input_bam_index = BuildBamIndex.bai_bam
-                        output_filename = output_filename,
-			make_gvcf = make_gvcf,
-                        make_bamout = make_bamout,
-			gatk_path = gatk_path
-			
-		}
-		
-	call VariantFiltration {
-		input:
-			sample_name = sample_name
-			ref_fasta = ref_fasta,
-			input_vcf = GATK_HaplotypeCaller.sample_vcf
-		
-	call select as selectSNP {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			type = "SNP"
-			F_vcf_SNP = VariantFiltration.sample_vcf
-		}
-				
-	call select as selectINDEL {
-		input:
-			sample_name = sample_name
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			type = "INDEL"
-			F_vcf_INDEL = VariantFiltration.sample_vcf			
-		}
-		
-	call VariantRcalibrator_SNP {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			HapMap = HapMap
-			omni = Omni
-			1000G = 1000G
-			dbSNP_hg19 = dbSNP_hg19
-			VR_input_SNP = selectSNP.F_vcf_SNP
-	}
-		
-	call VariantRecalibrator_INDEL {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			HapMap = HapMap
-			omni = Omni
-			1000G = 1000G
-			dbSNP_hg19 = dbSNP_hg19
-			VR_input_INDEL = selectINDEL.F_vcf_INDEL
-	}
-	
-	
-	
-	
-	
-		
-	call DeepVariant {
-	
-		input:
-			sample_name = sample_name
-			ef_fasta = ref_fasta,
-			ref_dict = ref_dict,
-			ref_index = ref_index,
-			
-}
 
+ call qualityCheck {
+	input:
+		sample_name = sample_name,
+		r1fastq = r1fastq,
+		r2fastq = r2fastq,
+	}
+	
+ call AlignBWA { 
+	input:
+		sample_name = sample_name,
+		r1fastq = r1fastq,
+		r2fastq = r2fastq,
+		ref_fasta = ref_fasta,
+		ref_fasta_amb = ref_fasta_amb,
+		ref_fasta_sa = ref_fasta_sa,
+		ref_fasta_bwt = ref_fasta_bwt,
+		ref_fasta_ann = ref_fasta_ann,
+		ref_fasta_pac = ref_fasta_pac,
+	}
+	
+ call SortSam {
+	input : 
+		sample_name = sample_name,
+		insam = AlignBWA.outsam	
+	}
+		
+ call Markduplicates {
+	input:
+		sample_name = sample_name,
+		outbam = SortSam.outbam	
+	}
+		
+ call FixReadGroup {	
+	input:
+		sample_name = sample_name,
+		out_dup_bam = Markduplicates.outbam
+	}
+		
+call BuildBamIndex {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		bai_bam = FixReadGroup.out_dup_bam	
+	}
+		
+		
+ call DepthOfCoverage {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_gene_list = ref_gene_list,
+		interval_bed = interval_bed,
+		input_bam = FixReadGroup.out_dup_bam,
+		depth_output = sample_name
+	}
+		
+ call Qualimap {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_gene_list = ref_gene_list,
+		interval_bed = interval_bed,
+		input_bam = FixReadGroup.out_dup_bam,	
+	}
+							
+ call GATK_HaplotypeCaller {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		input_bam = FixReadGroup.out_dup_bam
+		input_bam_index = BuildBamIndex.bai_bam
+                output_filename = output_filename,
+		make_gvcf = make_gvcf,
+                make_bamout = make_bamout,
+		gatk_path = gatk_path
+	}
+		
+ call VariantFiltration {
+	input:
+		sample_name = sample_name
+		ref_fasta = ref_fasta,
+		input_vcf = GATK_HaplotypeCaller.sample_vcf
+	}
+	
+ call select as selectSNP {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		type = "SNP"
+		F_vcf_SNP = VariantFiltration.sample_vcf
+	}
+				
+ call select as selectINDEL {
+	input:
+		sample_name = sample_name
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		type = "INDEL"
+		F_vcf_INDEL = VariantFiltration.sample_vcf			
+	}
+		
+ call VariantRcalibrator_SNP {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		HapMap = HapMap
+		omni = Omni
+		1000G = 1000G
+		dbSNP_hg19 = dbSNP_hg19
+		VR_input_SNP = selectSNP.F_vcf_SNP
+	}
+		
+ call VariantRecalibrator_INDEL {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		HapMap = HapMap
+		omni = Omni
+		1000G = 1000G
+		dbSNP_hg19 = dbSNP_hg19
+		VR_input_INDEL = selectINDEL.F_vcf_INDEL
+	}
+	
+ call ApplyVQSR_SNP {
+	input:
+		sample_name = sample_name,
+		VQSR_SNP =  selectSNP.F_vcf_SNP
+		Recal_SNP = VariantRcalibrator_SNP.out_recal
+	}
+	
+ Call ApplyVQSR_INDEL {
+	input:
+		sample_name = sample_name,
+		VQRS_INDEL = selectINDEL.F_vcf_INDEL
+		Recal_INDEL = VariantRecalibrator_INDEL.out_recal
+	}
+	
+ call DeepVariant {
+	input:
+		sample_name = sample_name
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		deep_input = FixReadGroup.out_dup_bam	
+	}
 
 
 # Tasks #
