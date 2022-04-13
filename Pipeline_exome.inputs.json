@@ -1,0 +1,13 @@
+{
+  "preprocessing_exome.r1fastq": "quickstart-input/RZL_R1.fastq.gz",
+  "preprocessing_exome.ref_fasta_pac": "quickstart-ref/BWA_index/hg19_ucsc.fa.pac",
+  "preprocessing_exome.ref_fasta_amb": "quickstart-ref/BWA_index/hg19_ucsc.fa.amb",
+  "preprocessing_exome.r2fastq": "quickstart-input/RZL_R2.fastq.gz",
+  "preprocessing_exome.sample_name": "RZL",
+  "preprocessing_exome.ref_fasta_ann": "quickstart-ref/BWA_index/hg19_ucsc.fa.ann",
+  "preprocessing_exome.ref_fasta_bwt": "quickstart-ref/BWA_index/hg19_ucsc.fa.bwt",
+  "preprocessing_exome.ref_fasta_sa": "quickstart-ref/BWA_index/hg19_ucsc.fa.sa",
+  "preprocessing_exome.align.threads": "10",
+  "preprocessing_exome.ref_fasta": "quickstart-ref/BWA_index/hg19_ucsc.fa"
+}
+
