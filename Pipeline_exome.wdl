@@ -52,9 +52,13 @@ workflow DataPreprocessing {
 	Array[File] known_indels_indices
 	Boolean make_gvcf = true
 	String gatk_path = ""
+	String QC_path = ""
+	String BAM_path = ""
+	String Var_path = ""
+	
 }	
 
- call qualityCheck {
+ call QualityCheck {
 	input:
 		sample_name = sample_name,
 		r1fastq = r1fastq,
@@ -216,6 +220,35 @@ call BuildBamIndex {
 ## Align reads to the reference genome hg19/hg38
 ## using BWA algorithm
 
+task QualityCheck {
+    input {
+	string sample_name
+	File r1fastq
+	File r2fastq
+	String Failure_Logs
+	String Exit_Code 
+}
+	command {
+	   set -x
+	   # Check to see if input files are non-zero
+           [ -s ${r1fastq} ] || echo "Input Read1 FastQ is Empty" >> ${Failure_Logs}
+           [ -s ${r2fastq} ] || echo "Input Read2 FastQ is Empty" >> ${Failure_Logs} 
+	   
+	   fastqc -t ${threads} ${r1fastq}  ${r2fastq} -o ${QC_path}
+	   
+	  if [ $? -ne 0 ]; then
+         echo "${sample_name} has failed at the FASTQ/BAM File Quality Control Step" >> ${Exit_Code}
+      fi
+
+      [ ! -d ${QC_path} ] && echo "FASTQC directory has not been created" >> ${Failure_Logs}
+      
+	}
+
+        runtime {
+      continueOnReturnCode: true
+   }	
+}
+
 task AlignBWA {
    input {
 	String sample_name
@@ -229,9 +262,20 @@ task AlignBWA {
 	File ref_fasta_pac
 	Float mem_size_gb = 12
 	Int threads
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
 }
 	command { 
+		set -x
+		StartTime=`date +%s`
+	
 		bwa mem -t ${threads} -R "@RG\tID:${sample_name}\tSM:${sample_name}" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${sample_name}.hg19-bwamem.sam
+		
+		EndTime=`date +%s`
+		
+		echo -e "${sample_name} ran BWA Mem and Samtools View for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		[[ ! -f ${sample_name}.aligned.bam ]] && echo -e "aligned bam not created" >> ${Failure_Logs}
 	}
 	
 	runtime {
@@ -249,20 +293,29 @@ task AlignBWA {
 # Task2
 ## This task will sort and convert sam to bam file and index the BAM
 
-task sortSam {
-
+task SortSam {
 	input {
-	
 	String sample_name
 	File insam
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
 }
 	command <<<
+		set -x
+		[ -s ${hg19-bwamem.sam} ] || echo "Aligned Sam File is Empty" >> ${Failure_Logs}
+		StartTime=`date +%s`
 		java -Xmx10g -jar ~/bin/picard.jar \
 		SortSam \
 		VALIDATION_STRINGENCY=SILENT \
 		I= ~{insam} \
 		O= ~{sample_name}.hg19-bwamem.sorted.bam \
 		SORT_ORDER=coordinate
+		
+		EndTime=`date +%s`
+		echo "${sample_name} ran Samtools SortSam for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		 [ ! -f ${sample_name}.hg19-bwamem.sorted.bam ] && echo "Aligned sorted bam not created" >> ${Failure_Logs}
 		
 	>>>
 	
@@ -273,17 +326,21 @@ task sortSam {
 	
 }
 
-
 # Task3
 ## This task remove duplicates in BAM file
 
 task Markduplicates {
 	input {
-	
 	String sample_name
 	File outbam
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
 }
 	command <<<
+		set -x
+		[ -s ${hg19-bwamem.sorted.bam} ] || echo "Aligned sorted Bam File is Empty" >> ${Failure_Logs}
+		StartTime=`date +%s`
 		java -jar ~/bin/picard.jar \
 		MarkDuplicates \
 		VALIDATION_STRINGENCY=LENIENT \
@@ -292,7 +349,8 @@ task Markduplicates {
 		I=~{outbam} \
 		O=~{sample_name}.hg19-bwamem.sorted.mkdup.bam \
 		M=~{sample_name}.metrics
-		
+		EndTime=`date +%s`
+		echo "${sample_name} ran Picard Mark Duplicates for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 	>>>
 	
 	output {
