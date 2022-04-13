@@ -37,11 +37,17 @@ workflow DataPreprocessing {
 	File ref_fasta_bwt
 	File ref_fasta_ann
 	File ref_fasta_pac
+	File ref_gene_list
+	File interval_bed
 	File ref_dict
 	File ref_index
 	File dbSNO_vcf
 	File dbSNP_vcf_index
 	File All_gene
+	File HapMap
+	File Omni
+	File 1000G
+	File dbSNP_hg19
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
 	Boolean make_gvcf = true
@@ -96,10 +102,28 @@ workflow DataPreprocessing {
 		}
 		
 		
+	call DepthOfCoverage {
+		inpt:
+			sample_name = sample_name,
+			ref_fasta = ref_fasta,
+			ref_gene_list = ref_gene_list,
+			interval_bed = interval_bed,
+			input_bam = FixReadGroup.out_dup_bam,
+			depth_output = sample_name
 		
+		}
 		
-		
-		
+	call Qualimap {
+		input:
+			sample_name = sample_name,
+			ref_fasta = ref_fasta,
+			ref_gene_list = ref_gene_list,
+			interval_bed = interval_bed,
+			input_bam = FixReadGroup.out_dup_bam,
+			
+		}
+			
+					
 	call GATK_HaplotypeCaller {
 		input:
 			sample_name = sample_name,
@@ -115,50 +139,62 @@ workflow DataPreprocessing {
 			
 		}
 		
-	call select as selectSNP {
+	call VariantFiltration {
+		input:
+			sample_name = sample_name
+			ref_fasta = ref_fasta,
+			input_vcf = GATK_HaplotypeCaller.sample_vcf
 		
+	call select as selectSNP {
 		input:
 			sample_name = sample_name,
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
 			type = "SNP"
-			rawVCF=HaplotypeCaller.sample_vcf
+			F_vcf_SNP = VariantFiltration.sample_vcf
 		}
-		
+				
 	call select as selectINDEL {
-	
 		input:
 			sample_name = sample_name
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
 			type = "INDEL"
-			rawVCF=HaplotypeCaller.sample_vcf			
+			F_vcf_INDEL = VariantFiltration.sample_vcf			
 		}
-	
-	call HardFilterSNP {
-	
+		
+	call VariantRcalibrator_SNP {
 		input:
 			sample_name = sample_name,
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
-			rawSNP= selectSNP.rawvcf
-			
-		}
+			HapMap = HapMap
+			omni = Omni
+			1000G = 1000G
+			dbSNP_hg19 = dbSNP_hg19
+			VR_input_SNP = selectSNP.F_vcf_SNP
+	}
 		
-	call HardFilterINDEL {
-	
+	call VariantRecalibrator_INDEL {
 		input:
-		
 			sample_name = sample_name,
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
-			rawSNP= selectINDEL.rawvcf
-			
-		}
+			HapMap = HapMap
+			omni = Omni
+			1000G = 1000G
+			dbSNP_hg19 = dbSNP_hg19
+			VR_input_INDEL = selectINDEL.F_vcf_INDEL
+	}
+	
+	
+	
+	
+	
 		
 	call DeepVariant {
 	
