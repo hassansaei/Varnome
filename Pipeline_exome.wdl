@@ -41,10 +41,11 @@ workflow DataPreprocessing {
 	File ref_index
 	File dbSNO_vcf
 	File dbSNP_vcf_index
-	File bed_library_prep_kit
 	File All_gene
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
+	Boolean make_gvcf = true
+	String gatk_path = ""
 }	
 	call qualityCheck {
 		input:
@@ -52,8 +53,7 @@ workflow DataPreprocessing {
 			r1fastq = r1fastq,
 			r2fastq = r2fastq,
 		}
-	call alignBWA { 
-	
+	call AlignBWA { 
 		input:
 			sample_name = sample_name,
 			r1fastq = r1fastq,
@@ -66,35 +66,23 @@ workflow DataPreprocessing {
 			ref_fasta_pac = ref_fasta_pac,
 		}
 	
-	call sortSam {
+	call SortSam {
 		input : 
 			sample_name = sample_name,
-			insam = alignBWA.outsam
-			
+			insam = AlignBWA.outsam	
 		}
 		
 	call Markduplicates {
 		input:
 			sample_name = sample_name,
-			outbam = sortSam.outbam
-			
-		}
-		
-	call DepthofCoverage {
-		input:
-			sample_name = sample_name,
-			ref_fasta = ref_fasta,
-			All_gene = All_gene,
-			bed_library_prep_kit = bed_library_prep_kit,
-			indepth = Markduplicates.outbam
-		
+			outbam = SortSam.outbam	
 		}
 		
 	call FixReadGroup {
 		
 		input:
 			sample_name = sample_name,
-			out_dup_bam = Markduplicates.out_dup_bam
+			out_dup_bam = Markduplicates.outbam
 			
 		}
 		
@@ -104,19 +92,26 @@ workflow DataPreprocessing {
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
-			FixedBAM = FixReadGroup.out_dup_bam
-			
+			bai_bam = FixReadGroup.out_dup_bam	
 		}
 		
-	call HaplotypeCaller {
 		
+		
+		
+		
+		
+	call GATK_HaplotypeCaller {
 		input:
 			sample_name = sample_name,
 			ref_fasta = ref_fasta,
 			ref_dict = ref_dict,
 			ref_index = ref_index,
-			BamFile = 
-			BamFile_index =
+			input_bam = FixReadGroup.out_dup_ba
+			input_bam_index = BuildBamIndex.bai_bam
+                        output_filename = output_filename,
+			make_gvcf = make_gvcf,
+                        make_bamout = make_bamout,
+			gatk_path = gatk_path
 			
 		}
 		
@@ -139,8 +134,7 @@ workflow DataPreprocessing {
 			ref_dict = ref_dict,
 			ref_index = ref_index,
 			type = "INDEL"
-			rawVCF=HaplotypeCaller.sample_vcf
-			
+			rawVCF=HaplotypeCaller.sample_vcf			
 		}
 	
 	call HardFilterSNP {
