@@ -216,9 +216,8 @@ call BuildBamIndex {
 ## Align reads to the reference genome hg19/hg38
 ## using BWA algorithm
 
-task align {
-	input {
-	
+task AlignBWA {
+   input {
 	String sample_name
 	File r1fastq
 	File r2fastq
@@ -228,16 +227,16 @@ task align {
 	File ref_fasta_bwt
 	File ref_fasta_ann
 	File ref_fasta_pac
+	Float mem_size_gb = 12
 	Int threads
 }
-	
 	command { 
-		bwa mem -t ${threads} -R "@RG\tID:A8100\tSM:A8100" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${sample_name}.hg19-bwamem.sam 
+		bwa mem -t ${threads} -R "@RG\tID:${sample_name}\tSM:${sample_name}" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${sample_name}.hg19-bwamem.sam
 	}
 	
 	runtime {
 		cpu: threads
-		requested_memory_mb: 16000
+		memory: "~{mem_size_gb} GiB"
 	}
 	
 	output {
@@ -246,7 +245,6 @@ task align {
 	}
 	
 }
-	
 	
 # Task2
 ## This task will sort and convert sam to bam file and index the BAM
