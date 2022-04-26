@@ -814,7 +814,7 @@ task ApplyVQSR_INDEL {
 task DeepCall {
 	input {	
 	String sample_name
-	File GATK_INDEL_out
+	File out_fix
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
@@ -849,17 +849,113 @@ task DeepCall {
 
 task selectSNP_deep {
 	input {
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		StartTime=`date +%s`
+		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_SNP && mv ${sample_name}.recode.vcf ${sample_name}_GATK_SNP.vcf
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
 	
+	output {
+	
+		File GATK_SNP_out = "~{sample_name}_GATK_SNP.vcf"
+		
+	}
+	
+}
+		
+		
+		
 task selectINDEL_deep {
 	input {
+		String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_INDEL && mv ${sample_name}_GATK_INDEL.recode.vcf ${sample_name}_GATK_INDEL.vcf
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		>>>
 	
+	output {
+	
+		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		
+	}
+	
+}
+		
+
 task Bcftools_merge_SNP {
 	input {
+		String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		bcftools merge file1.vcf.gz fle2.vcf.gz file3.vcf.gz > out.vcf
+				EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+	>>>
 	
+	output {
+	
+		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		
+	}
+	
+}
+		
+		
 task Bcftools_merge_INDEl {
 	input {
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		bcftools merge file1.vcf.gz fle2.vcf.gz file3.vcf.gz > out.vcf
+				EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+	>>>
 	
-
-
-
+	output {
+	
+		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		
+	}
+	
+}
 
