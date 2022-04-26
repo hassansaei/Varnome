@@ -119,15 +119,6 @@ call BuildBamIndex {
 		input_bam = FixReadGroup.out_dup_bam,
 		depth_output = sample_name
 	}
-		
- call Qualimap {
-	input:
-		sample_name = sample_name,
-		ref_fasta = ref_fasta,
-		ref_gene_list = ref_gene_list,
-		interval_bed = interval_bed,
-		input_bam = FixReadGroup.out_dup_bam,	
-	}
 							
  call GATK_HaplotypeCaller {
 	input:
@@ -135,21 +126,14 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		input_bam = FixReadGroup.out_dup_bam
-		input_bam_index = BuildBamIndex.bai_bam
-                output_filename = output_filename,
+		input_bam = FixReadGroup.out_dup_bam,
+		input_bam_index = BuildBamIndex.bai_bam,
+                GATK_out = GATK_out,
 		make_gvcf = make_gvcf,
                 make_bamout = make_bamout,
 		gatk_path = gatk_path
 	}
 		
- call VariantFiltration {
-	input:
-		sample_name = sample_name
-		ref_fasta = ref_fasta,
-		input_vcf = GATK_HaplotypeCaller.sample_vcf
-	}
-	
  call select as selectSNP {
 	input:
 		sample_name = sample_name,
@@ -157,7 +141,7 @@ call BuildBamIndex {
 		ref_dict = ref_dict,
 		ref_index = ref_index,
 		type = "SNP"
-		F_vcf_SNP = VariantFiltration.sample_vcf
+		F_vcf_SNP = GATK_HaplotypeCaller.GATK_out
 	}
 				
  call select as selectINDEL {
@@ -167,7 +151,14 @@ call BuildBamIndex {
 		ref_dict = ref_dict,
 		ref_index = ref_index,
 		type = "INDEL"
-		F_vcf_INDEL = VariantFiltration.sample_vcf			
+		F_vcf_INDEL = GATK_HaplotypeCaller.GATK_out			
+	}
+	
+ call VariantFiltration {
+	input:
+		sample_name = sample_name
+		ref_fasta = ref_fasta,
+		input_vcf = GATK_HaplotypeCaller.GATK_out
 	}
 		
  call VariantRcalibrator_SNP {
@@ -502,12 +493,233 @@ task  DepthOfCoverage {
 	
 	output {
 	
-		File out_index = "~{sample_name}"
+		File depth_output = "~{sample_name}"
 		
 	}
 	
 }
 
+task GATK_HaplotypeCaller {
+	input {
+	String sample_name
+	File out_fix
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		HaplotypeCaller \
+		-R  \
+		-I ${BAM_path}/~{out_fix} \
+		-O ~{sample_name}_GATK.vcf.gz
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran GATK HaplotypeCaller for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+	
+	output {
+	
+		File GATK_out = "~{sample_name}_GATK.vcf.gz"
+		
+	}
+	
+}
+
+task selectSNP {
+	input {
+	String sample_name
+	File GATK_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_SNP && mv ${sample_name}.recode.vcf ${sample_name}_GATK_SNP.vcf
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+	
+	output {
+	
+		File GATK_SNP_out = "~{sample_name}_GATK_SNP.vcf"
+		
+	}
+	
+}
+
+
+task selectINDEl {
+	input {
+	String sample_name
+	File GATK_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_INDEL && mv ${sample_name}_GATK_INDEL.recode.vcf ${sample_name}_GATK_INDEL.vcf
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		>>>
+	
+	output {
+	
+		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		
+	}
+	
+}
+
+
+task VariantFiltration_SNP {
+	input {
+	String sample_name
+	File GATK_SNP_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		VariantFiltration \
+		-R "$Re1".fa \
+		-V ~{GATK_SNP_out} \
+		-O ~{sample_name}_GATK_SNP_FP.vcf \
+		--filter-expression "QD < 2.00" \
+		--filter-name "QDlessthan2" --filter-expression "FS > 60.000" \
+		--filter-name "FSgreaterthan60" --filter-expression "SOR > 3.000" \
+		--filter-name "SORgreaterthan3" --filter-expression "MQRankSum<-2.50" \
+		--filter-name "MQRankSumlessthanminus2.5" --filter-expression "MQRankSum > 2.50" \
+		--filter-name "MQRankSumgreaaterthan2.5" --filter-expression "ReadPosRankSum < -1.00" \
+		--filter-name "ReadPosRankSumlessthanminus1" --filter-expression "ReadPosRankSum > 3.50" \
+		--filter-name "ReadPosRankSumgreaterthan3.5" --filter-expression "MQ < 60.00" \
+		--filter-name "MQlessthan60"
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Varinat filterations using GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+	
+	output {
+	
+		File GATK_SNP_FP = "~{sample_name}_GATK_SNP_FP.vcf"
+		
+	}
+	
+}
+
+task VariantFiltration_INDEL {
+	input {
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		VariantFiltration \
+		-R "$Re1".fa \
+		-V ~{GATK_INDEL_out} \
+		-O ~{sample_name}_GATK_INDEL_FP.vcf \
+		--filter-expression "QD < 2.00" --filter-name "QDlessthan2" \
+		--filter-expression "FS > 60.000" --filter-name "FSgreaterthan60" \
+		--filter-expression "SOR > 3.000" --filter-name "SORgreaterthan3" \
+		--filter-expression "ReadPosRankSum < -1.00" --filter-name "ReadPosRankSumlessthanminus1" \
+		--filter-expression "ReadPosRankSum > 3.5" --filter-name "ReadPosRankSumgreaterthan3.5" \
+		--filter-expression "MQ < 60.00" --filter-name "MQlessthan60"
+
+
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Varinat filterations using GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+	
+	output {
+	
+		File GATK_INDEL_FP = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
+
+
+task VariantRcalibrator_INDEL {
+	input {
+	
+
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		
+		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar VariantRecalibrator \
+    		-V cohort_sitesonly.vcf.gz \
+    		--trust-all-polymorphic \
+    		-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.5 -tranche 99.0 -tranche 97.0 -tranche 96.0 -tranche 95.0 -tranche 94.0 -tranche 93.5 -tranche 93.0 -tranche 92.0 -tranche 91.0 -tranche 90.0 \
+    		-an FS -an ReadPosRankSum -an MQRankSum -an QD -an SOR -an DP \      
+   		-mode INDEL \
+    		--max-gaussians 4 \
+   	 	-resource:mills,known=false,training=true,truth=true,prior=12:Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+   	 	-resource:axiomPoly,known=false,training=true,truth=false,prior=10:Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz \
+   	 	-resource:dbsnp,known=true,training=false,truth=false,prior=2:Homo_sapiens_assembly38.dbsnp138.vcf \
+   	 	-O cohort_indels.recal \
+   	 	--tranches-file cohort_indels.tranches
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran VariantRecalibrator from GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+
+
+
+
+
+
+
+
+task VariantRcalibrator_SNP {
+	input {
+	
+
+
+
+
+	
+	
+	
+task ApplyVQSR_SNP {
+	input {
+	
+
+
+
+
+
+
+
+task ApplyVQSR_INDEL {
+	input {
+	
 
 
 
