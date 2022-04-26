@@ -665,8 +665,11 @@ task VariantFiltration_INDEL {
 
 task VariantRcalibrator_INDEL {
 	input {
-	
-
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
 }
 	command <<<
 		set -x
@@ -690,37 +693,172 @@ task VariantRcalibrator_INDEL {
 		echo "${sample_name} Ran VariantRecalibrator from GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		>>>
 
-
-
-
-
-
-
+	output {
+	
+		File Recalib_INDEL = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
 
 task VariantRcalibrator_SNP {
 	input {
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		
+		gatk --java-options "-Xmx3g -Xms3g" VariantRecalibrator \
+    		-V cohort_sitesonly.vcf.gz \
+    		--trust-all-polymorphic \
+    		-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.8 -tranche 99.6 -tranche 99.5 -tranche 99.4 -tranche 99.3 -tranche 99.0 -tranche 98.0 -tranche 97.0 -tranche 90.0 \
+    		-an QD -an MQRankSum -an ReadPosRankSum -an FS -an MQ -an SOR -an DP \
+    		-mode SNP \
+    		--max-gaussians 6 \
+    		-resource:hapmap,known=false,training=true,truth=true,prior=15:hapmap_3.3.hg38.vcf.gz \
+    		-resource:omni,known=false,training=true,truth=true,prior=12:1000G_omni2.5.hg38.vcf.gz \
+    		-resource:1000G,known=false,training=true,truth=false,prior=10:1000G_phase1.snps.high_confidence.hg38.vcf.gz \
+    		-resource:dbsnp,known=true,training=false,truth=false,prior=7:Homo_sapiens_assembly38.dbsnp138.vcf \
+    		-O cohort_snps.recal \
+    		--tranches-file cohort_snps.tranches
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran VariantRecalibrator from GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
 	
-
-
-
-
+	output {
 	
+		File Recalib_SNP = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
 	
 	
 task ApplyVQSR_SNP {
 	input {
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}	
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		gatk --java-options "-Xmx5g -Xms5g" \
+    		ApplyVQSR \
+    		-V indel.recalibrated.vcf.gz \
+    		--recal-file ${snps_recalibration} \
+    		--tranches-file ${snps_tranches} \
+    		--truth-sensitivity-filter-level 99.7 \
+    		--create-output-variant-index true \
+    		-mode SNP \
+    		-O snp.recalibrated.vcf.gz \
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran ApplyVQSR from GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+	>>>
+
+	output {
 	
-
-
-
-
-
+		File VQSR_SNP = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
 
 
 task ApplyVQSR_INDEL {
 	input {
 	
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		gatk --java-options "-Xmx5g -Xms5g" \
+   		ApplyVQSR \
+    		-V cohort_excesshet.vcf.gz \
+    		--recal-file cohort_indels.recal \
+    		--tranches-file cohort_indels.tranches \
+    		--truth-sensitivity-filter-level 99.7 \
+    		--create-output-variant-index true \
+    		-mode INDEL \
+    		-O indel.recalibrated.vcf.gz
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran ApplyVQSR from GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+	>>>
+	
+	output {
+	
+		File VQSR_INDEL = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
 
+task DeepCall {
+	input {	
+	String sample_name
+	File GATK_INDEL_out
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		StartTime=`date +%s`
+		singularity run -B /usr/lib/locale/:/usr/lib/locale/ \
+  		docker://google/deepvariant:"${BIN_VERSION}" \
+  		/opt/deepvariant/bin/run_deepvariant \
+  		--model_type=WGS \ **Replace this string with exactly one of the following [WGS,WES,PACBIO,HYBRID_PACBIO_ILLUMINA]**
+  		--ref="${INPUT_DIR}"/ucsc.hg19.chr20.unittest.fasta \
+  		--reads="${INPUT_DIR}"/NA12878_S1.chr20.10_10p1mb.bam \
+  		--regions "chr20:10,000,000-10,010,000" \
+  		--output_vcf="${OUTPUT_DIR}"/output.vcf.gz \
+  		--output_gvcf="${OUTPUT_DIR}"/output.g.vcf.gz \
+  		--intermediate_results_dir "${OUTPUT_DIR}/intermediate_results_dir" \ **Optional.
+  		--num_shards=1 \ **How many cores the `make_examples` step uses. Change it to the number of CPU cores you have.**
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran DeepVariant for variant calling for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		>>>
+	
+	output {
+	
+		File Deep_vcf = "~{sample_name}_GATK_INDEL_FP.vcf"
+		
+	}
+	
+}
+
+task selectSNP_deep {
+	input {
+	
+task selectINDEL_deep {
+	input {
+	
+task Bcftools_merge_SNP {
+	input {
+	
+task Bcftools_merge_INDEl {
+	input {
+	
 
 
 
