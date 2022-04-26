@@ -50,16 +50,16 @@ workflow DataPreprocessing {
 	File dbSNP_hg19
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
+	Array[File] All_genes
+	Array[File] Target_bed 
 	Boolean make_gvcf = true
-	String gatk_path = ""
-	String QC_path = ""
-	String BAM_path = ""
-	String Var_path = ""
-	String Tools_path = ""
-	String Input_files_all_gene = ""
-	String Input_files_target_bed = ""
-	
-	
+	String gatk_path = "~/tools/"
+	String picard_path = "~/tools/"
+	String ref_path = "~/References/"
+	String DeepVariant_path = "~/tools/"
+	String QC_path = "~/Result/QC/"
+	String BAM_path = "~/Result/BAM/"
+	String VCF_path = "~/Result/VCF/"		
 }	
 
  call QualityCheck {
@@ -67,6 +67,7 @@ workflow DataPreprocessing {
 		sample_name = sample_name,
 		r1fastq = r1fastq,
 		r2fastq = r2fastq,
+		
 	}
 	
  call AlignBWA { 
