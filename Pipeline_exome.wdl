@@ -55,6 +55,10 @@ workflow DataPreprocessing {
 	String QC_path = ""
 	String BAM_path = ""
 	String Var_path = ""
+	String Tools_path = ""
+	String Input_files_all_gene = ""
+	String Input_files_target_bed = ""
+	
 	
 }	
 
@@ -258,17 +262,20 @@ task QualityCheck {
 	string sample_name
 	File r1fastq
 	File r2fastq
+	String Exit_Code
 	String Failure_Logs
-	String Exit_Code 
+	String dollar = "$"
 }
 	command {
 	   set -x
-	   # Check to see if input files are non-zero
-           [ -s ${r1fastq} ] || echo "Input Read1 FastQ is Empty" >> ${Failure_Logs}
-           [ -s ${r2fastq} ] || echo "Input Read2 FastQ is Empty" >> ${Failure_Logs} 
+	   # Check to see if input files are present
+           [ -s ${r1fastq} ] || echo "Input Read1 Fastq is Empty" >> ${Failure_Logs}
+           [ -s ${r2fastq} ] || echo "Input Read2 Fastq is Empty" >> ${Failure_Logs} 
 	   
+	   StartTime=`date +%s`
 	   fastqc -t ${threads} ${r1fastq}  ${r2fastq} -o ${QC_path}
-	   
+	   EndTime=`date +%s`
+	   echo -e "${sample_name} ran Quality check step for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 	  if [ $? -ne 0 ]; then
          echo "${sample_name} has failed at the FASTQ/BAM File Quality Control Step" >> ${Exit_Code}
       fi
@@ -299,17 +306,15 @@ task AlignBWA {
 	String Failure_Logs
 	String dollar = "$"
 }
-	command { 
+	command <<<
 		set -x
 		StartTime=`date +%s`
-	
-		bwa mem -t ${threads} -R "@RG\tID:${sample_name}\tSM:${sample_name}" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${sample_name}.hg19-bwamem.sam
-		
+		bwa mem -t ${threads} -R "@RG\tID:${sample_name}\tSM:${sample_name}" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${BAM_path}/${sample_name}.hg19-bwamem.sam
 		EndTime=`date +%s`
 		
-		echo -e "${sample_name} ran BWA Mem and Samtools View for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		[[ ! -f ${sample_name}.aligned.bam ]] && echo -e "aligned bam not created" >> ${Failure_Logs}
-	}
+		echo -e "${sample_name} Ran BWA Mem for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		[[ ! -f ${sample_name}.aligned.bam ]] && echo -e "Aligned bam not created" >> ${Failure_Logs}
+	>>>
 	
 	runtime {
 		cpu: threads
@@ -336,17 +341,19 @@ task SortSam {
 }
 	command <<<
 		set -x
+		# To see whether the sam files is created or not!
 		[ -s ${hg19-bwamem.sam} ] || echo "Aligned Sam File is Empty" >> ${Failure_Logs}
 		StartTime=`date +%s`
-		java -Xmx10g -jar ~/bin/picard.jar \
+		
+		java -Xmx10g -jar ${Tools_path}/picard.jar \
 		SortSam \
 		VALIDATION_STRINGENCY=SILENT \
-		I= ~{insam} \
-		O= ~{sample_name}.hg19-bwamem.sorted.bam \
+		I= ${BAM_path}/~{insam} \
+		O= ${BAM_path}/~{sample_name}.hg19-bwamem.sorted.bam \
 		SORT_ORDER=coordinate
 		
 		EndTime=`date +%s`
-		echo "${sample_name} ran Samtools SortSam for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		echo "${sample_name} Ran Samtools SortSam for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		
 		 [ ! -f ${sample_name}.hg19-bwamem.sorted.bam ] && echo "Aligned sorted bam not created" >> ${Failure_Logs}
 		
@@ -373,17 +380,19 @@ task Markduplicates {
 	command <<<
 		set -x
 		[ -s ${hg19-bwamem.sorted.bam} ] || echo "Aligned sorted Bam File is Empty" >> ${Failure_Logs}
+		
 		StartTime=`date +%s`
-		java -jar ~/bin/picard.jar \
+		java -jar ${Tools_path}/picard.jar \
 		MarkDuplicates \
 		VALIDATION_STRINGENCY=LENIENT \
 		AS=true \
 		REMOVE_DUPLICATES=true \
-		I=~{outbam} \
-		O=~{sample_name}.hg19-bwamem.sorted.mkdup.bam \
-		M=~{sample_name}.metrics
+		I= ${BAM_path}/~{outbam} \
+		O= ${BAM_path}/~{sample_name}.hg19-bwamem.sorted.mkdup.bam \
+		M= ~{sample_name}.metrics
 		EndTime=`date +%s`
-		echo "${sample_name} ran Picard Mark Duplicates for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		# How long dose it take
+		echo "${sample_name} Ran Picard Mark Duplicates for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 	>>>
 	
 	output {
@@ -402,28 +411,105 @@ task FixReadGroup {
 	input {
 	String sample_name
 	File out_dup_bam
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
 }
 	command <<<
-		java -jar ~/bin/picard.jar \
+		set -x
+		[ -s ${hg19-bwamem.sorted.mkdup.bam} ] || echo "Markduplicated Bam File is Empty" >> ${Failure_Logs}
+		StartTime=`date +%s`
+		java -jar ${Tools_path}/picard.jar \
 		AddOrReplaceReadGroups \
 		VALIDATION_STRINGENCY=LENIENT \
-		I=~{out_dup_bam} \
-		O=~{sample_name}.hg19-bwamem.bam \
+		I= ${BAM_path}/~{out_dup_bam} \
+		O= ${BAM_path}/~{sample_name}_hg19.bam \
 		RGID=SRR"~{sample_name}" \
 		RGLB=SRR"~{sample_name}" \
 		RGPL=illumina \
 		RGPU=SRR"~{sample_name}" \
 		RGSM=SRR"~{sample_name}" \
 		CREATE_INDEX=true
+		EndTime=`date +%s`
 		
+		# How long dose it take
+		echo "${sample_name} Ran Picard AddOrReplaceReadGroups for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 	>>>
 	
 	output {
 	
-		File out_fix = "~{sample_name}.hg19-bwamem.bam"
+		File out_fix = "~{sample_name}_hg19.bam"
 		
 	}
 	
 }
+
+task BuildBamIndex {
+	input {
+	String sample_name
+	File out_fix
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+}
+	command <<<
+		set -x
+		[ -s ${hg19.bam} ] || echo "ReadGroup fixed Bam File is Empty" >> ${Failure_Logs}
+		StartTime=`date +%s`
+		samtools index ${BAM_path}/~{out_fix}
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran Samtools index for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+	
+	>>>
+	
+	output {
+	
+		File out_index = "~{sample_name}_hg19.bai"
+		
+	}
+	
+}
+		
+task  DepthOfCoverage {
+	input {
+	String sample_name
+	File out_fix
+	String Exit_Code
+	String Failure_Logs
+	String dollar = "$"
+	
+}
+	command <<<
+		set -x
+		
+		StartTime=`date +%s`
+		java -jar ${Tools_path}/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		DepthOfCoverage \
+		-R ${ref_fasta} \
+		-O ${BAM_path}/${sample_name} \
+		-I ${BAM_path}/~{out_fix} \
+		-gene-list ${Input_files_all_gene}/All_gene.refseq \
+		-L ${Input_files_target_bed}/truseq-dna-exome-targeted-regions-manifest-v1-2.bed
+
+		EndTime=`date +%s`
+		
+		# How long dose it take
+		echo "${sample_name} Ran DepthOfCoverage for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+	
+	>>>
+	
+	output {
+	
+		File out_index = "~{sample_name}"
+		
+	}
+	
+}
+
+
+
+
 
 
