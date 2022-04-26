@@ -206,7 +206,7 @@ call BuildBamIndex {
 		Recal_INDEL = VariantRecalibrator_INDEL.out_recal
 	}
 	
- call DeepVariant {
+ call DeepCall {
 	input:
 		sample_name = sample_name
 		ref_fasta = ref_fasta,
@@ -215,6 +215,39 @@ call BuildBamIndex {
 		deep_input = FixReadGroup.out_dup_bam	
 	}
 
+ call select as selectSNP_deep {
+	input:
+		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		type = "SNP"
+		F_vcf_SNP_deep = DeepCall.sample_vcf
+	}
+				
+ call select as selectINDEL_deep {
+	input:
+		sample_name = sample_name
+		ref_fasta = ref_fasta,
+		ref_dict = ref_dict,
+		ref_index = ref_index,
+		type = "INDEL"
+		F_vcf_INDEL_deep = DeepCall.sample_vcf			
+	}
+	
+call Bcftools_merge_SNP {
+	input:
+		sample_name = sample_name
+		GATK_SNP = ApplyVQSR_SNP.output
+		Deep_SNP = selectSNP_deep.output
+	}
+
+call Bcftools_merge_INDEl {
+	input:
+		sample_name = sample_name
+		GATK_INDEL = ApplyVQSR_INDEL.output
+		Deep_INDEL = selectINDEL_deep.output
+	}
 
 # Tasks #
 ## Align reads to the reference genome hg19/hg38
