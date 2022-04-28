@@ -975,7 +975,7 @@ task selectINDEL_deep {
 	
 	output {
 	
-		File GATK_Indel_out = "~{sample_name}_Deep_Indel.vcf"
+		File deep_Indel = "~{sample_name}_Deep_Indel.vcf"
 		File deep_Indel_record = "~{sample_name}_Deep_Indel.recode.vcf"
 	}
 	
@@ -987,7 +987,8 @@ task selectINDEL_deep {
 task Bcftools_merge_SNP {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File deep_SNP
+	File VQSR_SNP
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
@@ -995,8 +996,8 @@ task Bcftools_merge_SNP {
 	command <<<
 		set -x
 		StartTime=`date +%s`
-		bcftools merge file1.vcf.gz fle2.vcf.gz file3.vcf.gz > out.vcf
-				EndTime=`date +%s`
+		bcftools merge ${VCF_path}/${VQSR_SNP} ${VCF_path}/${deep_SNP} > ${VCF_path}/${sample_name}_merged_snp.vcf
+		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
@@ -1015,7 +1016,8 @@ task Bcftools_merge_SNP {
 task Bcftools_merge_INDEl {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File deep_Indel
+	File VQSR_INDEL
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
