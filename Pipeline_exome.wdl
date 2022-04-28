@@ -39,8 +39,6 @@ workflow DataPreprocessing {
 	File ref_fasta_pac
 	File ref_dict
 	File ref_index
-	File dbSNO_vcf
-	File dbSNP_vcf_index
 	File All_gene
 	File hapmap_resource_vcf
         File hapmap_resource_vcf_index
@@ -52,7 +50,6 @@ workflow DataPreprocessing {
         File mills_resource_vcf_index
         File dbsnp_vcf
         File dbsnp_vcf_index
-	
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
 	Array[File] All_genes_hg19
@@ -72,16 +69,22 @@ workflow DataPreprocessing {
 
  call QualityCheck {
 	input:
+		QC_path = QC_path,
+		input_path = input_path,
 		sample_name = sample_name,
 		r1fastq = r1fastq,
-		r2fastq = r2fastq,	
+		r2fastq = r2fastq,
 	}
 	
  call AlignBWA { 
 	input:
 		sample_name = sample_name,
+		input_path = input_path,
+		ref_path_hg19 = ref_path_hg19,
+		picard_path = picard_path,
 		r1fastq = r1fastq,
 		r2fastq = r2fastq,
+		BAM_path = BAM_path,
 		ref_fasta = ref_fasta,
 		ref_fasta_amb = ref_fasta_amb,
 		ref_fasta_sa = ref_fasta_sa,
@@ -93,29 +96,36 @@ workflow DataPreprocessing {
  call Markduplicates {
 	input:
 		sample_name = sample_name,
+		BAM_path = BAM_path,
+		picard_path = picard_path,
 		outbam = AlignBWA.outbam	
 	}
 		
  call FixReadGroup {	
 	input:
 		sample_name = sample_name,
+		BAM_path = BAM_path,
+		picard_path = picard_path,
 		out_dup_bam = Markduplicates.out_dup_bam
 	}
 		
 call BuildBamIndex {
 	input:
 		sample_name = sample_name,
+		BAM_path = BAM_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		bai_bam = FixReadGroup.out_fix	
+		bai_bam = FixReadGroup.out_fix
 	}
-		
-		
+				
  call DepthOfCoverage {
 	input:
 		sample_name = sample_name,
+		BAM_path = BAM_path,
 		ref_fasta = ref_fasta,
+		ref_path_hg19= ref_path_hg19,
+		ref_path_hg19 = ref_path_hg19,
 		ref_gene_list = ref_gene_list,
 		interval_bed = interval_bed,
 		input_bam = FixReadGroup.out_fix,
@@ -125,6 +135,10 @@ call BuildBamIndex {
  call GATK_HaplotypeCaller {
 	input:
 		sample_name = sample_name,
+		gatk_path = gatk_path,
+		VCF_path = VCF_path,
+		BAM_path = BAM_path,
+		ref_path_hg19 = ref_path_hg19,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
@@ -139,6 +153,7 @@ call BuildBamIndex {
  call select as selectSNP {
 	input:
 		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
@@ -148,7 +163,8 @@ call BuildBamIndex {
 				
  call select as selectINDEL {
 	input:
-		sample_name = sample_name
+		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
@@ -156,42 +172,62 @@ call BuildBamIndex {
 		F_vcf_INDEL = GATK_HaplotypeCaller.GATK_out			
 	}
 	
- call VariantFiltration {
+ call VariantFiltration_SNP {
 	input:
-		sample_name = sample_name
+		sample_name = sample_name,
+		ref_path_hg19 = ref_path_hg19,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
-		input_vcf = GATK_HaplotypeCaller.GATK_out
+		ref_index = ref_index,
+		input_vcf = selectSNP.GATK_SNP_out
 	}
-		
+
+call VariantFiltration_INDEL {
+	input:
+		sample_name = sample_name,
+		ref_path_hg19 = ref_path_hg19,
+		VCF_path = VCF_path,
+		ref_fasta = ref_fasta,
+		ref_index = ref_index,
+		input_vcf = selectINDEL.GATK_INDEL_out
+	}
+
  call VariantRcalibrator_SNP {
 	input:
 		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
-		ref_dict = ref_dict,
 		ref_index = ref_index,
-		HapMap = HapMap
-		omni = Omni
-		1000G = 1000G
-		dbSNP_hg19 = dbSNP_hg19
-		VR_input_SNP = selectSNP.F_vcf_SNP
+		dbsnp_vcf = dbsnp_vcf,
+    		dbsnp_vcf_index = dbsnp_vcf_index,
+		hapmap_resource_vcf = hapmap_resource_vcf,
+		hapmap_resource_vcf_index = hapmap_resource_vcf_index,
+		omni_resource_vcf = omni_resource_vcf,
+		omni_resource_vcf_index = omni_resource_vcf_index,
+		thousand_G_resource_vcf = thousand_G_resource_vcf,
+		thousand_G_resource_vcf_index = thousand_G_resource_vcf_index,
+		VR_input_SNP = VariantFiltration_SNP.GATK_SNP_FP
 	}
 		
  call VariantRecalibrator_INDEL {
 	input:
 		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		HapMap = HapMap
-		omni = Omni
-		1000G = 1000G
-		dbSNP_hg19 = dbSNP_hg19
-		VR_input_INDEL = selectINDEL.F_vcf_INDEL
+		mills_resource_vcf = mills_resource_vcf,
+		mills_resource_vcf_index = mills_resource_vcf_index,
+		dbsnp_vcf = dbsnp_vcf,
+    		dbsnp_vcf_index = dbsnp_vcf_index,
+		VR_input_INDEL = VariantFiltration_INDEL.GATK_INDEL_FP
 	}
 	
  call ApplyVQSR_SNP {
 	input:
 		sample_name = sample_name,
+		VCF_path = VCF_path,
+		ref_fasta = ref_fasta,
 		VQSR_SNP =  selectSNP.F_vcf_SNP
 		Recal_SNP = VariantRcalibrator_SNP.out_recal
 	}
@@ -199,13 +235,18 @@ call BuildBamIndex {
  Call ApplyVQSR_INDEL {
 	input:
 		sample_name = sample_name,
+		ref_fasta = ref_fasta,
+		VCF_path = VCF_path,
 		VQRS_INDEL = selectINDEL.F_vcf_INDEL
 		Recal_INDEL = VariantRecalibrator_INDEL.out_recal
 	}
 	
  call DeepCall {
 	input:
-		sample_name = sample_name
+		sample_name = sample_name,
+		DeepVariant_path = DeepVariant_path,
+		VCF_path = VCF_path,
+		BAM_path = BAM_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
@@ -215,20 +256,22 @@ call BuildBamIndex {
  call select as selectSNP_deep {
 	input:
 		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		type = "SNP"
+		type = "SNP",
 		F_vcf_SNP_deep = DeepCall.sample_vcf
 	}
 				
  call select as selectINDEL_deep {
 	input:
-		sample_name = sample_name
+		sample_name = sample_name,
+		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		type = "INDEL"
+		type = "INDEL",
 		F_vcf_INDEL_deep = DeepCall.sample_vcf			
 	}
 	
@@ -249,7 +292,9 @@ call Bcftools_merge_INDEl {
 # Task 1 QC 
 task QualityCheck {
     input {
-	string sample_name
+	String sample_name
+	String input_path
+	String QC_path
 	File r1fastq
 	File r2fastq
 	String Exit_Code
@@ -264,7 +309,7 @@ task QualityCheck {
            [ -s ${r2fastq} ] || echo "Input Read2 Fastq is Empty" >> ${Failure_Logs} 
 	   
 	   StartTime=`date +%s`
-	   fastqc -t ${threads} ${r1fastq}  ${r2fastq} -o ${QC_path}
+	   fastqc -t ${threads} ${input_path}/${r1fastq}  ${input_path}/${r2fastq} -o ${QC_path}
 	   EndTime=`date +%s`
 	   
 	   echo -e "${sample_name} ran Quality check step for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
@@ -286,6 +331,11 @@ task QualityCheck {
 task AlignBWA {
    input {
 	String sample_name
+	String input_path
+	String QC_path
+	String BAM_path
+	String picard_path
+	String ref_path_hg19
 	File r1fastq
 	File r2fastq
 	File ref_fasta
