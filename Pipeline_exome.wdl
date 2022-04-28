@@ -51,13 +51,13 @@ workflow DataPreprocessing {
 	Array[File] All_genes
 	Array[File] Target_bed 
 	Boolean make_gvcf = true
-	String gatk_path = "~/tools/"
-	String picard_path = "~/tools/"
-	String ref_path = "~/References/"
-	String DeepVariant_path = "~/tools/"
-	String QC_path = "~/Result/QC/"
-	String BAM_path = "~/Result/BAM/"
-	String VCF_path = "~/Result/VCF/"		
+	String gatk_path = "~/Singlypy/tools/gatk/"
+	String picard_path = "~/Singlypy/tools/"
+	String ref_path = "~/Singlepy/References/"
+	String DeepVariant_path = "~/Singlepy/tools/"
+	String QC_path = "~/Singlepy/Results/QC/"
+	String BAM_path = "~/Singlepy/Results/BAM/"
+	String VCF_path = "~/Singlepy/Results/VCF/"		
 }	
 
  call QualityCheck {
