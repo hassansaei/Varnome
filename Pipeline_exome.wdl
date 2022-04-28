@@ -37,8 +37,6 @@ workflow DataPreprocessing {
 	File ref_fasta_bwt
 	File ref_fasta_ann
 	File ref_fasta_pac
-	File ref_gene_list
-	File interval_bed
 	File ref_dict
 	File ref_index
 	File dbSNO_vcf
@@ -66,8 +64,7 @@ workflow DataPreprocessing {
 	input:
 		sample_name = sample_name,
 		r1fastq = r1fastq,
-		r2fastq = r2fastq,
-		
+		r2fastq = r2fastq,	
 	}
 	
  call AlignBWA { 
@@ -98,7 +95,7 @@ workflow DataPreprocessing {
  call FixReadGroup {	
 	input:
 		sample_name = sample_name,
-		out_dup_bam = Markduplicates.outbam
+		out_dup_bam = Markduplicates.out_dup_bam
 	}
 		
 call BuildBamIndex {
@@ -107,7 +104,7 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		bai_bam = FixReadGroup.out_dup_bam	
+		bai_bam = FixReadGroup.out_fix	
 	}
 		
 		
@@ -117,7 +114,7 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_gene_list = ref_gene_list,
 		interval_bed = interval_bed,
-		input_bam = FixReadGroup.out_dup_bam,
+		input_bam = FixReadGroup.out_fix,
 		depth_output = sample_name
 	}
 							
@@ -127,8 +124,8 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		input_bam = FixReadGroup.out_dup_bam,
-		input_bam_index = BuildBamIndex.bai_bam,
+		input_bam = FixReadGroup.out_fix,
+		input_bam_index = BuildBamIndex.out_index,
                 GATK_out = GATK_out,
 		make_gvcf = make_gvcf,
                 make_bamout = make_bamout,
