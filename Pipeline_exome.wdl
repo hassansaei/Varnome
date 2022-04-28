@@ -1002,17 +1002,20 @@ task Bcftools_merge_SNP {
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		
+		[[ ! -f ${sample_name}_merged_snp.vcf ]] && echo -e "Merging Deep and GATK SNP vcf files was not successful" >> ${Failure_Logs}
 	>>>
 	
 	output {
 	
-		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		File vcf_snp_final = "~{sample_name}_merged_snp.vcf"
 		
 	}
 	
 }
 		
-		
+# Task 21
+## Merging GATK and DeepVariant SNP outputs
+
 task Bcftools_merge_INDEl {
 	input {
 	String sample_name
@@ -1025,17 +1028,18 @@ task Bcftools_merge_INDEl {
 	command <<<
 		set -x
 		StartTime=`date +%s`
-		bcftools merge file1.vcf.gz fle2.vcf.gz file3.vcf.gz > out.vcf
-				EndTime=`date +%s`
+		bcftools merge ${VCF_path}/${VQSR_INDEL} ${VCF_path}/${deep_Indel} > ${VCF_path}/${sample_name}_merged_Indel.vcf
+	        EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		
+		[[ ! -f ${sample_name}_merged_Indel.vcf ]] && echo -e "Merging Deep and GATK Indel vcf files was not successful" >> ${Failure_Logs}
 	>>>
 	
 	output {
 	
-		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
+		File vcf_Indel_final = "~{sample_name}_merged_Indel.vcf"
 		
 	}
 	
