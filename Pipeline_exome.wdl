@@ -42,22 +42,32 @@ workflow DataPreprocessing {
 	File dbSNO_vcf
 	File dbSNP_vcf_index
 	File All_gene
-	File HapMap
-	File Omni
-	File 1000G
-	File dbSNP_hg19
+	File hapmap_resource_vcf
+        File hapmap_resource_vcf_index
+        File omni_resource_vcf
+        File omni_resource_vcf_index
+        File thousand_G_resource_vcf
+        File thousand_G_resource_vcf_index
+        File mills_resource_vcf
+        File mills_resource_vcf_index
+        File dbsnp_vcf
+        File dbsnp_vcf_index
+	
 	Array[File] known_indels_vcf
 	Array[File] known_indels_indices
-	Array[File] All_genes
+	Array[File] All_genes_hg19
 	Array[File] Target_bed 
 	Boolean make_gvcf = true
 	String gatk_path = "~/Singlypy/tools/gatk/"
 	String picard_path = "~/Singlypy/tools/"
-	String ref_path = "~/Singlepy/References/"
+	String ref_path_hg19 = "~/Singlepy/References/hg19"
+	String ref_path_hg38 = "~/Singlepy/References/hg38"
 	String DeepVariant_path = "~/Singlepy/tools/"
 	String QC_path = "~/Singlepy/Results/QC/"
 	String BAM_path = "~/Singlepy/Results/BAM/"
-	String VCF_path = "~/Singlepy/Results/VCF/"		
+	String VCF_path = "~/Singlepy/Results/VCF/"
+	String input_path = "~/Singlepy/input"
+	Int threads
 }	
 
  call QualityCheck {
@@ -80,16 +90,10 @@ workflow DataPreprocessing {
 		ref_fasta_pac = ref_fasta_pac,
 	}
 	
- call SortSam {
-	input : 
-		sample_name = sample_name,
-		insam = AlignBWA.outsam	
-	}
-		
  call Markduplicates {
 	input:
 		sample_name = sample_name,
-		outbam = SortSam.outbam	
+		outbam = AlignBWA.outbam	
 	}
 		
  call FixReadGroup {	
@@ -242,10 +246,7 @@ call Bcftools_merge_INDEl {
 		Deep_INDEL = selectINDEL_deep.output
 	}
 
-# Tasks #
-## Align reads to the reference genome hg19/hg38
-## using BWA algorithm
-
+# Task 1 QC 
 task QualityCheck {
     input {
 	string sample_name
@@ -254,8 +255,9 @@ task QualityCheck {
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
+	Int threads = 6
 }
-	command {
+	command <<<
 	   set -x
 	   # Check to see if input files are present
            [ -s ${r1fastq} ] || echo "Input Read1 Fastq is Empty" >> ${Failure_Logs}
@@ -264,19 +266,22 @@ task QualityCheck {
 	   StartTime=`date +%s`
 	   fastqc -t ${threads} ${r1fastq}  ${r2fastq} -o ${QC_path}
 	   EndTime=`date +%s`
+	   
 	   echo -e "${sample_name} ran Quality check step for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-	  if [ $? -ne 0 ]; then
-         echo "${sample_name} has failed at the FASTQ/BAM File Quality Control Step" >> ${Exit_Code}
-      fi
-
-      [ ! -d ${QC_path} ] && echo "FASTQC directory has not been created" >> ${Failure_Logs}
+	   if [ $? -ne 0 ]; then
+           echo "${sample_name} has failed at the FASTQ/BAM File Quality Control Step" >> ${Exit_Code}
+        fi
+           [ ! -d ${QC_path} ] && echo "QC directory has not been created" >> ${Failure_Logs}
       
-	}
+	>>>
 
         runtime {
-      continueOnReturnCode: true
+        continueOnReturnCode: true
    }	
 }
+
+# Task 2 this will do the alignment, Sort and convert sam to bam 
+# Using BWA mem algorithm 
 
 task AlignBWA {
    input {
@@ -297,12 +302,22 @@ task AlignBWA {
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		bwa mem -t ${threads} -R "@RG\tID:${sample_name}\tSM:${sample_name}" ${ref_fasta} ${r1fastq} ${r2fastq} -o ${BAM_path}/${sample_name}.hg19-bwamem.sam
+		bwa mem \
+		-t ${threads} \
+		-R "@RG\tID:${sample_name}\tSM:${sample_name}" \
+		${ref_path_hg19}/${ref_fasta} \
+		${input_path}/${r1fastq} ${input_path}/${r2fastq} | \
+		java -Xmx10g -jar ${picard_path}/picard.jar \
+		SortSam \
+		VALIDATION_STRINGENCY=SILENT \
+		O= ${BAM_path}/~{sample_name}_hg19_sorted.bam \
+		SORT_ORDER=coordinate
 		EndTime=`date +%s`
 		
-		echo -e "${sample_name} Ran BWA Mem for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		[[ ! -f ${sample_name}.aligned.bam ]] && echo -e "Aligned bam not created" >> ${Failure_Logs}
+		echo -e "${sample_name} Ran BWA Mem and Picard Sort for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		[[ ! -f ${BAM_path}/${sample_name}_hg19_sorted.bam ]] && echo -e "Aligned bam not created" >> ${Failure_Logs}
 	>>>
 	
 	runtime {
@@ -312,50 +327,13 @@ task AlignBWA {
 	
 	output {
 		
-		File outsam = "${sample_name}.hg19-bwamem.sam"
+		File outbam = "${sample_name}_hg19_sorted.bam"
 	}
 	
 }
 	
-# Task2
-## This task will sort and convert sam to bam file and index the BAM
 
-task SortSam {
-	input {
-	String sample_name
-	File insam
-	String Exit_Code
-	String Failure_Logs
-	String dollar = "$"
-}
-	command <<<
-		set -x
-		# To see whether the sam files is created or not!
-		[ -s ${hg19-bwamem.sam} ] || echo "Aligned Sam File is Empty" >> ${Failure_Logs}
-		StartTime=`date +%s`
-		
-		java -Xmx10g -jar ${Tools_path}/picard.jar \
-		SortSam \
-		VALIDATION_STRINGENCY=SILENT \
-		I= ${BAM_path}/~{insam} \
-		O= ${BAM_path}/~{sample_name}.hg19-bwamem.sorted.bam \
-		SORT_ORDER=coordinate
-		
-		EndTime=`date +%s`
-		echo "${sample_name} Ran Samtools SortSam for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		
-		 [ ! -f ${sample_name}.hg19-bwamem.sorted.bam ] && echo "Aligned sorted bam not created" >> ${Failure_Logs}
-		
-	>>>
-	
-	output {
-	
-		File outbam = "~{sample_name}.hg19-bwamem.sorted.bam"
-	}
-	
-}
-
-# Task3
+# Task 3
 ## This task remove duplicates in BAM file
 
 task Markduplicates {
@@ -368,27 +346,29 @@ task Markduplicates {
 }
 	command <<<
 		set -x
-		[ -s ${hg19-bwamem.sorted.bam} ] || echo "Aligned sorted Bam File is Empty" >> ${Failure_Logs}
+		[ -s ${BAM_path}/${sample_name}_hg19_sorted.bam} ] || echo "Aligned sorted Bam File is Empty" >> ${Failure_Logs}
 		
 		StartTime=`date +%s`
-		java -jar ${Tools_path}/picard.jar \
+		java -jar ${picard_path}/picard.jar \
 		MarkDuplicates \
 		VALIDATION_STRINGENCY=LENIENT \
 		AS=true \
 		REMOVE_DUPLICATES=true \
 		I= ${BAM_path}/~{outbam} \
-		O= ${BAM_path}/~{sample_name}.hg19-bwamem.sorted.mkdup.bam \
+		O= ${BAM_path}/~{sample_name}.hg19_sorted_mkdup.bam \
 		M= ~{sample_name}.metrics
 		EndTime=`date +%s`
+		
 		# How long dose it take
 		echo "${sample_name} Ran Picard Mark Duplicates for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		[[ ! -f ${BAM_path}/~{sample_name}.hg19_sorted_mkdup.bam ]] && echo -e "Markduplicated bam not created" >> ${Failure_Logs}
 	>>>
 	
 	output {
 		
-		File out_dup_bam = "~{sample_name}.hg19-bwamem.sorted.mkdup.bam"
+		File out_dup_bam = "~{sample_name}.hg19_sorted_mkdup.bam"
 		File out_metrics = "~{sample_name}.metrics"
-		
 	}
 	
 }
@@ -406,9 +386,10 @@ task FixReadGroup {
 }
 	command <<<
 		set -x
-		[ -s ${hg19-bwamem.sorted.mkdup.bam} ] || echo "Markduplicated Bam File is Empty" >> ${Failure_Logs}
+		[ -s ${hg19_sorted_mkdup.bam} ] || echo "Markduplicated Bam File is Empty" >> ${Failure_Logs}
+		
 		StartTime=`date +%s`
-		java -jar ${Tools_path}/picard.jar \
+		java -jar ${picard_path}/picard.jar \
 		AddOrReplaceReadGroups \
 		VALIDATION_STRINGENCY=LENIENT \
 		I= ${BAM_path}/~{out_dup_bam} \
@@ -423,6 +404,8 @@ task FixReadGroup {
 		
 		# How long dose it take
 		echo "${sample_name} Ran Picard AddOrReplaceReadGroups for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		[[ ! -f ${BAM_path}/~{sample_name}_hg19.bam ]] && echo -e "ReadGroup Fixed bam not created" >> ${Failure_Logs}
 	>>>
 	
 	output {
@@ -432,6 +415,9 @@ task FixReadGroup {
 	}
 	
 }
+
+# Task 5
+## Build BAM file index 
 
 task BuildBamIndex {
 	input {
@@ -450,21 +436,27 @@ task BuildBamIndex {
 		
 		# How long dose it take
 		echo "${sample_name} Ran Samtools index for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		[[ ! -f ${BAM_path}/~{sample_name}_hg19.bam.bai ]] && echo -e "Bam Index File not created" >> ${Failure_Logs}
 	
 	>>>
 	
 	output {
 	
-		File out_index = "~{sample_name}_hg19.bai"
+		File out_index = "~{sample_name}_hg19.bam.bai"
 		
 	}
 	
 }
-		
+
+# Task 6
+## Run DepthofCoverage for BAM file QC
+
 task  DepthOfCoverage {
 	input {
 	String sample_name
 	File out_fix
+	File All_gene_hg19
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
@@ -474,12 +466,12 @@ task  DepthOfCoverage {
 		set -x
 		
 		StartTime=`date +%s`
-		java -jar ${Tools_path}/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
 		DepthOfCoverage \
-		-R ${ref_fasta} \
+		-R ${ref_path_hg19}/${ref_fasta} \
 		-O ${BAM_path}/${sample_name} \
 		-I ${BAM_path}/~{out_fix} \
-		-gene-list ${Input_files_all_gene}/All_gene.refseq \
+		-gene-list ${ref_path_hg19}/${All_genes_hg19} \
 		-L ${Input_files_target_bed}/truseq-dna-exome-targeted-regions-manifest-v1-2.bed
 
 		EndTime=`date +%s`
@@ -497,6 +489,9 @@ task  DepthOfCoverage {
 	
 }
 
+# Task 7
+## Run GATK_HaplotypeCaller for variant calling
+
 task GATK_HaplotypeCaller {
 	input {
 	String sample_name
@@ -507,17 +502,20 @@ task GATK_HaplotypeCaller {
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
 		HaplotypeCaller \
-		-R  \
+		-R ${ref_path_hg19}/${ref_fasta} \
 		-I ${BAM_path}/~{out_fix} \
-		-O ~{sample_name}_GATK.vcf.gz
+		-O ${VCF_path}/~{sample_name}_GATK.vcf.gz
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran GATK HaplotypeCaller for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/~{sample_name}_GATK.vcf.gz ]] && echo -e "GATK KaplotypeCaller VCF File not created" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -526,6 +524,9 @@ task GATK_HaplotypeCaller {
 	}
 	
 }
+
+# Task 9
+## Seperate SNPs from INDEL variants
 
 task selectSNP {
 	input {
@@ -537,13 +538,18 @@ task selectSNP {
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_SNP && mv ${sample_name}.recode.vcf ${sample_name}_GATK_SNP.vcf
+		vcftools --gzvcf ${VCF_path}/~{GATK_out} \
+		--remove-indels --recode --recode-INFO-all \
+		--out ${VCF_path}/${sample_name}_GATK_SNP && mv ${VCF_path}/${sample_name}_GATK_SNP.recode.vcf ${VCF_path}/${sample_name}_GATK_SNP.vcf
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/~{sample_name}_GATK.vcf.gz ]] && echo -e "vcftools SNP sepeartion was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -553,6 +559,8 @@ task selectSNP {
 	
 }
 
+# Task 10
+## Seperate INDELs from GATK VCF file
 
 task selectINDEl {
 	input {
@@ -565,14 +573,18 @@ task selectINDEl {
 
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_INDEL && mv ${sample_name}_GATK_INDEL.recode.vcf ${sample_name}_GATK_INDEL.vcf
+		vcftools --gzvcf ${VCF_path}/~{GATK_out} \
+		--remove-indels --recode --recode-INFO-all \
+		--out ${VCF_path}/${sample_name}_GATK_INDEL && mv ${VCF_path}/${sample_name}_GATK_INDEL.recode.vcf ${VCF_path}/${sample_name}_GATK_INDEL.vcf
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		
-		>>>
+		[[ ! -f ${VCF_path}/${sample_name}_GATK_INDEL.vcf ]] && echo -e "vcftools INDEL sepeartion was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -582,6 +594,8 @@ task selectINDEl {
 	
 }
 
+# Task 11
+## SNP Variants Hard Filtration Step
 
 task VariantFiltration_SNP {
 	input {
@@ -594,11 +608,11 @@ task VariantFiltration_SNP {
 	command <<<
 		set -x
 		StartTime=`date +%s`
-		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
 		VariantFiltration \
-		-R "$Re1".fa \
-		-V ~{GATK_SNP_out} \
-		-O ~{sample_name}_GATK_SNP_FP.vcf \
+		-R ${ref_path_hg19}/${ref_fasta} \
+		-V ${VCF_path}/~{GATK_SNP_out} \
+		-O ${VCF_path}/~{sample_name}_GATK_SNP_FP.vcf \
 		--filter-expression "QD < 2.00" \
 		--filter-name "QDlessthan2" --filter-expression "FS > 60.000" \
 		--filter-name "FSgreaterthan60" --filter-expression "SOR > 3.000" \
@@ -612,7 +626,9 @@ task VariantFiltration_SNP {
 		
 		# How long dose it take
 		echo "${sample_name} Varinat filterations using GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/${sample_name}_GATK_SNP_FP.vcf ]] && echo -e "GATK Variant Hard Filteration for SNPs was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -621,6 +637,9 @@ task VariantFiltration_SNP {
 	}
 	
 }
+
+# Task 12
+## INDEL Variants Hard Filtration Step
 
 task VariantFiltration_INDEL {
 	input {
@@ -633,11 +652,11 @@ task VariantFiltration_INDEL {
 	command <<<
 		set -x
 		StartTime=`date +%s`
-		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
 		VariantFiltration \
-		-R "$Re1".fa \
-		-V ~{GATK_INDEL_out} \
-		-O ~{sample_name}_GATK_INDEL_FP.vcf \
+		-R ${ref_path_hg19}/${ref_fasta} \
+		-V ${VCF_path}/~{GATK_INDEL_out} \
+		-O ${VCF_path}/~{sample_name}_GATK_INDEL_FP.vcf \
 		--filter-expression "QD < 2.00" --filter-name "QDlessthan2" \
 		--filter-expression "FS > 60.000" --filter-name "FSgreaterthan60" \
 		--filter-expression "SOR > 3.000" --filter-name "SORgreaterthan3" \
@@ -645,12 +664,13 @@ task VariantFiltration_INDEL {
 		--filter-expression "ReadPosRankSum > 3.5" --filter-name "ReadPosRankSumgreaterthan3.5" \
 		--filter-expression "MQ < 60.00" --filter-name "MQlessthan60"
 
-
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Varinat filterations using GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/${sample_name}_GATK_INDEL_FP.vcf ]] && echo -e "GATK Variant Hard Filteration For INDELs was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -660,11 +680,17 @@ task VariantFiltration_INDEL {
 	
 }
 
+# Task 13
+## INDEL Variant Recalibration Step
 
 task VariantRcalibrator_INDEL {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File mills_resource_vcf
+        File dbsnp_vcf
+        File mills_resource_vcf_index
+        File dbsnp_vcf_index
+	File GATK_INDEL_FP
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
@@ -673,36 +699,50 @@ task VariantRcalibrator_INDEL {
 		set -x
 		StartTime=`date +%s`
 		
-		java -jar ../bin/gatk-4.2.4.0/gatk-package-4.2.4.0-local.jar VariantRecalibrator \
-    		-V cohort_sitesonly.vcf.gz \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar VariantRecalibrator \
+    		-V ${VCF_path}/~{GATK_INDEL_FP} \
     		--trust-all-polymorphic \
-    		-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.5 -tranche 99.0 -tranche 97.0 -tranche 96.0 -tranche 95.0 -tranche 94.0 -tranche 93.5 -tranche 93.0 -tranche 92.0 -tranche 91.0 -tranche 90.0 \
+    		-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.5 -tranche 99.0 \
+		-tranche 97.0 -tranche 96.0 -tranche 95.0 -tranche 94.0 -tranche 93.5 \
+		-tranche 93.0 -tranche 92.0 -tranche 91.0 -tranche 90.0 \
     		-an FS -an ReadPosRankSum -an MQRankSum -an QD -an SOR -an DP \      
    		-mode INDEL \
     		--max-gaussians 4 \
-   	 	-resource:mills,known=false,training=true,truth=true,prior=12:Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
-   	 	-resource:axiomPoly,known=false,training=true,truth=false,prior=10:Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz \
-   	 	-resource:dbsnp,known=true,training=false,truth=false,prior=2:Homo_sapiens_assembly38.dbsnp138.vcf \
-   	 	-O cohort_indels.recal \
-   	 	--tranches-file cohort_indels.tranches
+   	 	-resource:mills,known=false,training=true,truth=true,prior=12:${mills_resource_vcf} \
+   	 	-resource:dbsnp,known=true,training=false,truth=false,prior=2:${dbsnp_vcf} \
+   	 	-O ${VCF_path}/~{sample_name}_indels.recal \
+   	 	--tranches-file ${VCF_path}/~{sample_name}_INDEL.tranches
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran VariantRecalibrator from GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/~{sample_name}_indels.recal ]] && echo -e "GATK Variant Recalibration For INDELs was not found" >> ${Failure_Logs}
+	>>>
 
 	output {
 	
 		File Recalib_INDEL = "~{sample_name}_GATK_INDEL_FP.vcf"
-		
+		File tranched_indel = "~{sample_name}_INDEL.tranches"
 	}
 	
 }
 
+# Task 14
+## SNP Variant Recalibration step
+
 task VariantRcalibrator_SNP {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File GATK_SNP_FP
+	File hapmap_resource_vcf
+        File hapmap_resource_vcf_index
+        File omni_resource_vcf
+        File omni_resource_vcf_index
+        File thousand_G_resource_vcf
+        File thousand_G_resource_vcf_index
+        File dbsnp_vcf
+        File dbsnp_vcf_index
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
@@ -711,131 +751,158 @@ task VariantRcalibrator_SNP {
 		set -x
 		StartTime=`date +%s`
 		
-		gatk --java-options "-Xmx3g -Xms3g" VariantRecalibrator \
-    		-V cohort_sitesonly.vcf.gz \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar VariantRecalibrator \
+    		-V ${VCF_path}/~{GATK_SNP_FP} \
     		--trust-all-polymorphic \
     		-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.8 -tranche 99.6 -tranche 99.5 -tranche 99.4 -tranche 99.3 -tranche 99.0 -tranche 98.0 -tranche 97.0 -tranche 90.0 \
     		-an QD -an MQRankSum -an ReadPosRankSum -an FS -an MQ -an SOR -an DP \
     		-mode SNP \
     		--max-gaussians 6 \
-    		-resource:hapmap,known=false,training=true,truth=true,prior=15:hapmap_3.3.hg38.vcf.gz \
-    		-resource:omni,known=false,training=true,truth=true,prior=12:1000G_omni2.5.hg38.vcf.gz \
-    		-resource:1000G,known=false,training=true,truth=false,prior=10:1000G_phase1.snps.high_confidence.hg38.vcf.gz \
-    		-resource:dbsnp,known=true,training=false,truth=false,prior=7:Homo_sapiens_assembly38.dbsnp138.vcf \
-    		-O cohort_snps.recal \
-    		--tranches-file cohort_snps.tranches
+    		-resource:hapmap,known=false,training=true,truth=true,prior=15:${hapmap_resource_vcf} \
+    		-resource:omni,known=false,training=true,truth=true,prior=12:${omni_resource_vcf} \
+    		-resource:1000G,known=false,training=true,truth=false,prior=10:${thousand_G_resource_vcf} \
+    		-resource:dbsnp,known=true,training=false,truth=false,prior=7:${dbsnp_vcf} \
+    		-O ${VCF_path}/~{sample_name}_snp.recal \
+    		--tranches-file ${VCF_path}/~{sample_name}_snps.tranches
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran VariantRecalibrator from GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${VCF_path}/~{sample_name}_snp.recal ]] && echo -e "GATK Variant Recalibration For SNPs was not found" >> ${Failure_Logs}
+
+	>>>
 	
 	output {
 	
 		File Recalib_SNP = "~{sample_name}_GATK_INDEL_FP.vcf"
+		File tranches_snp = "~{sample_name}_snps.tranches"
 		
 	}
 	
 }
 	
-	
+# Task 15
+## ApplyVQSR step for SNP	
+
 task ApplyVQSR_SNP {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File GATK_SNP_FP
+	File Recalib_SNP
+	File tranches_snp
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
 }	
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		gatk --java-options "-Xmx5g -Xms5g" \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
     		ApplyVQSR \
-    		-V indel.recalibrated.vcf.gz \
-    		--recal-file ${snps_recalibration} \
-    		--tranches-file ${snps_tranches} \
+    		-V  ${VCF_path}/~{GATK_SNP_FP} \
+    		--recal-file ${VCF_path}/${Recalib_SNP} \
+    		--tranches-file ${VCF_path}/${tranches_snp} \
     		--truth-sensitivity-filter-level 99.7 \
     		--create-output-variant-index true \
     		-mode SNP \
-    		-O snp.recalibrated.vcf.gz \
+    		-O ${VCF_path}/${sample_name}_SNP_recalibrated.vcf.gz 
+		
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran ApplyVQSR from GATK for SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		[[ ! -f ${sample_name}_SNP_recalibrated.vcf.gz ]] && echo -e "GATK ApplyVQSR For SNPs was not found" >> ${Failure_Logs}
 	>>>
 
 	output {
 	
-		File VQSR_SNP = "~{sample_name}_GATK_INDEL_FP.vcf"
+		File VQSR_SNP = "~{sample_name}_SNP_recalibrated.vcf.gz"
 		
 	}
 	
 }
 
+# Task 16
+## ApplyVQSR step for INDEL
 
 task ApplyVQSR_INDEL {
 	input {
-	
 	String sample_name
-	File GATK_INDEL_out
+	File GATK_INDEL_FP
+	File Recalib_INDEL
+	File tranched_indel
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		gatk --java-options "-Xmx5g -Xms5g" \
+		java -jar ${gatk_path}/gatk-package-4.2.4.0-local.jar \
    		ApplyVQSR \
-    		-V cohort_excesshet.vcf.gz \
-    		--recal-file cohort_indels.recal \
-    		--tranches-file cohort_indels.tranches \
+    		-V ${VCF_path}/~{GATK_INDEL_FP} \
+    		--recal-file ${VCF_path}/${Recalib_INDEL} \
+    		--tranches-file ${VCF_path}/{tranched_indel} \
     		--truth-sensitivity-filter-level 99.7 \
     		--create-output-variant-index true \
     		-mode INDEL \
-    		-O indel.recalibrated.vcf.gz
+    		-O  ${VCF_path}/${sample_name}_indel_recalibrated.vcf.gz
+		
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran ApplyVQSR from GATK for INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
+		
+		[[ ! -f ${sample_name}_indel_recalibrated.vcf.gz ]] && echo -e "GATK ApplyVQSR For INDELs was not found" >> ${Failure_Logs}
 	>>>
 	
 	output {
 	
-		File VQSR_INDEL = "~{sample_name}_GATK_INDEL_FP.vcf"
+		File VQSR_INDEL = "~{sample_name}_indel_recalibrated.vcf.gz"
 		
 	}
 	
 }
+
+# Task 17
+## Variant calling with DeepVariant 
 
 task DeepCall {
 	input {	
 	String sample_name
 	File out_fix
+	File ref_fasta
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
+	String mode_exome = "WES"
+	String mode_genome = "WGS"
+	Int threads
 }
 	command <<<
 		set -x
 		StartTime=`date +%s`
 		singularity run -B /usr/lib/locale/:/usr/lib/locale/ \
-  		docker://google/deepvariant:"${BIN_VERSION}" \
+  		docker://google/deepvariant:1.3.1 \
   		/opt/deepvariant/bin/run_deepvariant \
-  		--model_type=WGS \ **Replace this string with exactly one of the following [WGS,WES,PACBIO,HYBRID_PACBIO_ILLUMINA]**
-  		--ref="${INPUT_DIR}"/ucsc.hg19.chr20.unittest.fasta \
-  		--reads="${INPUT_DIR}"/NA12878_S1.chr20.10_10p1mb.bam \
-  		--regions "chr20:10,000,000-10,010,000" \
-  		--output_vcf="${OUTPUT_DIR}"/output.vcf.gz \
-  		--output_gvcf="${OUTPUT_DIR}"/output.g.vcf.gz \
-  		--intermediate_results_dir "${OUTPUT_DIR}/intermediate_results_dir" \ **Optional.
-  		--num_shards=1 \ **How many cores the `make_examples` step uses. Change it to the number of CPU cores you have.**
+  		--model_type= ${mode_exome} \ 
+  		--ref=  ${ref_path_hg19}/${ref_fasta} \
+  		--reads= ${BAM_path}/~{out_fix} \
+  		--output_vcf= ${VCF_path}/~{sample_name}_deepVariant.vcf.gz \
+  		--output_gvcf= ${VCF_path}/~{sample_name}_deepVariant.g.vcf.gz \
+  		--intermediate_results_dir ${VCF_path} \ 
+  		--num_shards= ${threads} \ 
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran DeepVariant for variant calling for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${sample_name}_deepVariant.vcf.gz ]] && echo -e "Variant calling with DeepVariant was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
@@ -845,66 +912,81 @@ task DeepCall {
 	
 }
 
+# Task 18
+## Seperating SNPS from DeepCall output
+
 task selectSNP_deep {
 	input {
 	String sample_name
-	File GATK_INDEL_out
+	File Deep_vcf
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		StartTime=`date +%s`
-		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_SNP && mv ${sample_name}.recode.vcf ${sample_name}_GATK_SNP.vcf
+		vcftools --gzvcf ${VCF_path}/~{Deep_vcf} \
+		--remove-indels --recode --recode-INFO-all \
+		--out ${VCF_path}/${sample_name}_Deep_SNP && mv ${sample_name}_Deep_SNP.recode.vcf ${sample_name}_Deep_SNP.vcf
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet SNPs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
-		>>>
+		
+		[[ ! -f ${sample_name}_Deep_SNP.vcf ]] && echo -e "DeepVariant SNP variant seperation was not successful" >> ${Failure_Logs}
+	>>>
 	
 	output {
 	
-		File GATK_SNP_out = "~{sample_name}_GATK_SNP.vcf"
+		File deep_SNP = "~{sample_name}_Deep_SNP.vcf"
+		File deep_SNP_record = "~{sample_name}_Deep_SNP.recode.vcf"
 		
 	}
 	
 }
-		
-		
-		
+				
+# Task 19
+## Seperating INDELs from DeepCall output		
 task selectINDEL_deep {
 	input {
-		String sample_name
-	File GATK_INDEL_out
+	String sample_name
+	File Deep_vcf
 	String Exit_Code
 	String Failure_Logs
 	String dollar = "$"
 }
 	command <<<
 		set -x
+		
 		StartTime=`date +%s`
-		vcftools --gzvcf ${BAM_path}/~{GATK_out} --remove-indels --recode --recode-INFO-all --out ${BAM_path}/${sample_name}_GATK_INDEL && mv ${sample_name}_GATK_INDEL.recode.vcf ${sample_name}_GATK_INDEL.vcf
+		vcftools --gzvcf ${VCF_path}/~{Deep_vcf} \
+		--remove-indels --recode --recode-INFO-all \
+		--out ${VCF_path}/${sample_name}_Deep_Indel && mv ${sample_name}_Deep_Indel.recode.vcf ${sample_name}_Deep_Indel.vcf
 		EndTime=`date +%s`
 		
 		# How long dose it take
 		echo "${sample_name} Ran vcftools to separet INDELs for ${dollar}((${dollar}{EndTime} - ${dollar}{StartTime})) seconds" >> ${Failure_Logs}
 		
-		>>>
+		[[ ! -f ${sample_name}_Deep_Indel.vcf ]] && echo -e "DeepVariant Indel variant seperation was not successful" >> ${Failure_Logs}
+		
+	>>>
 	
 	output {
 	
-		File GATK_INDEL_out = "~{sample_name}_GATK_INDEL.vcf"
-		
+		File GATK_Indel_out = "~{sample_name}_Deep_Indel.vcf"
+		File deep_Indel_record = "~{sample_name}_Deep_Indel.recode.vcf"
 	}
 	
 }
 		
+# Task 20
+## Merging GATK and DeepVariant SNP outputs
 
 task Bcftools_merge_SNP {
 	input {
-		String sample_name
+	String sample_name
 	File GATK_INDEL_out
 	String Exit_Code
 	String Failure_Logs
