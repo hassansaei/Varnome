@@ -73,7 +73,7 @@ workflow DataPreprocessing {
 		input_path = input_path,
 		sample_name = sample_name,
 		r1fastq = r1fastq,
-		r2fastq = r2fastq,
+		r2fastq = r2fastq
 	}
 	
  call AlignBWA { 
@@ -90,7 +90,7 @@ workflow DataPreprocessing {
 		ref_fasta_sa = ref_fasta_sa,
 		ref_fasta_bwt = ref_fasta_bwt,
 		ref_fasta_ann = ref_fasta_ann,
-		ref_fasta_pac = ref_fasta_pac,
+		ref_fasta_pac = ref_fasta_pac
 	}
 	
  call Markduplicates {
@@ -157,7 +157,7 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		type = "SNP"
+		type = "SNP",
 		F_vcf_SNP = GATK_HaplotypeCaller.GATK_out
 	}
 				
@@ -168,7 +168,7 @@ call BuildBamIndex {
 		ref_fasta = ref_fasta,
 		ref_dict = ref_dict,
 		ref_index = ref_index,
-		type = "INDEL"
+		type = "INDEL",
 		F_vcf_INDEL = GATK_HaplotypeCaller.GATK_out			
 	}
 	
@@ -228,7 +228,7 @@ call VariantFiltration_INDEL {
 		sample_name = sample_name,
 		VCF_path = VCF_path,
 		ref_fasta = ref_fasta,
-		VQSR_SNP =  selectSNP.F_vcf_SNP
+		VQSR_SNP =  selectSNP.F_vcf_SNP,
 		Recal_SNP = VariantRcalibrator_SNP.out_recal
 	}
 	
@@ -237,7 +237,7 @@ call VariantFiltration_INDEL {
 		sample_name = sample_name,
 		ref_fasta = ref_fasta,
 		VCF_path = VCF_path,
-		VQRS_INDEL = selectINDEL.F_vcf_INDEL
+		VQRS_INDEL = selectINDEL.F_vcf_INDEL,
 		Recal_INDEL = VariantRecalibrator_INDEL.out_recal
 	}
 	
@@ -277,15 +277,15 @@ call VariantFiltration_INDEL {
 	
 call Bcftools_merge_SNP {
 	input:
-		sample_name = sample_name
-		GATK_SNP = ApplyVQSR_SNP.output
+		sample_name = sample_name,
+		GATK_SNP = ApplyVQSR_SNP.output,
 		Deep_SNP = selectSNP_deep.output
 	}
 
 call Bcftools_merge_INDEl {
 	input:
-		sample_name = sample_name
-		GATK_INDEL = ApplyVQSR_INDEL.output
+		sample_name = sample_name,
+		GATK_INDEL = ApplyVQSR_INDEL.output,
 		Deep_INDEL = selectINDEL_deep.output
 	}
 
@@ -305,8 +305,8 @@ task QualityCheck {
 	command <<<
 	   set -x
 	   # Check to see if input files are present
-           [ -s ${r1fastq} ] || echo "Input Read1 Fastq is Empty" >> ${Failure_Logs}
-           [ -s ${r2fastq} ] || echo "Input Read2 Fastq is Empty" >> ${Failure_Logs} 
+           [ -s ${input_path}/${r1fastq} ] || echo "Input Read1 Fastq is Empty" >> ${Failure_Logs}
+           [ -s ${input_path}/${r2fastq} ] || echo "Input Read2 Fastq is Empty" >> ${Failure_Logs} 
 	   
 	   StartTime=`date +%s`
 	   fastqc -t ${threads} ${input_path}/${r1fastq}  ${input_path}/${r2fastq} -o ${QC_path}
